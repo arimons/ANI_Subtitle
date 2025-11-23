@@ -86,31 +86,6 @@ async def run_processing_task(task_id: str, mode: str, stream_index: int = None)
             chunks = split_audio(temp_audio_path, segment_time=60, output_dir=chunk_dir)
             
             # 3. Parallel Transcribe
-            update_task_status(task_id, f"Transcribing {len(chunks)} chunks...", 30)
-            raw_srt_content = await transcribe_audio_parallel(chunks, segment_time=60)
-            
-            # Cleanup
-            if os.path.exists(temp_audio_path):
-                os.remove(temp_audio_path)
-            # Cleanup chunks
-            for chunk in chunks:
-                os.remove(chunk)
-            os.rmdir(chunk_dir)
-
-        # Step 4: Translate
-        logger.info("Translating subtitles...")
-        
-        async def translation_progress(current, total):
-            percent = 80 + int((current / total) * 15) # 80% -> 95%
-            update_task_status(task_id, f"번역 중 (Gemini) - {current}/{total} 청크", percent)
-
-        translated_srt = await translate_text_parallel(raw_srt_content, progress_callback=translation_progress)
-
-        # Step 5: Save Output
-        with open(output_srt_path, "w", encoding="utf-8") as f:
-            f.write(translated_srt)
-        
-        logger.info(f"Task {task_id} completed. Saved to {output_srt_path}")
         
         update_task_metadata(task_id, {
             "result": output_srt_path,

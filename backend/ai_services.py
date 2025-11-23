@@ -202,3 +202,75 @@ async def translate_text_parallel(text: str, target_lang: str = "Korean", progre
 # Wrapper for backward compatibility if needed, but we will update pipeline.py
 def translate_text(text: str, target_lang: str = "Korean") -> str:
     return asyncio.run(translate_text_parallel(text, target_lang))
+
+async def translate_text_openai(text: str, target_lang: str = "Korean", progress_callback=None) -> str:
+    """
+    Translates text using OpenAI GPT-4.1 Nano.
+    """
+    if not openai_client:
+        raise ValueError("OpenAI API Key is missing.")
+
+    # Split SRT into blocks (separated by double newlines)
+    srt_blocks = text.strip().split('\n\n')
+    
+    # Chunk size (number of subtitle blocks per request)
+    CHUNK_SIZE = 50 
+    chunks = [srt_blocks[i:i + CHUNK_SIZE] for i in range(0, len(srt_blocks), CHUNK_SIZE)]
+    
+    logger.info(f"Split subtitle into {len(chunks)} chunks for OpenAI translation.")
+    
+    # Semaphore for OpenAI rate limits
+    sem = asyncio.Semaphore(5) # Slightly higher concurrency for OpenAI
+
+    async def translate_chunk(index, chunk):
+        async with sem:
+            chunk_text = "\n\n".join(chunk)
+            
+            if progress_callback:
+                await progress_callback(index + 1, len(chunks))
+
+            prompt = f"""
+            You are a professional anime subtitle translator.
+            Translate the following subtitle text to {target_lang}.
+            
+            Rules:
+            1. Maintain the original SRT/ASS format structure exactly. Do not change timestamps.
+            2. Use natural, conversational Korean suitable for anime context.
+            3. Handle Japanese names and slang appropriately.
+            4. Output ONLY the translated content, no markdown code blocks.
+            5. Do not omit any lines.
+            
+            Input:
+            {chunk_text}
+            """
+            
+            try:
+                loop = asyncio.get_event_loop()
+                response = await loop.run_in_executor(
+                    None, 
+                    lambda: openai_client.chat.completions.create(
+                        model="gpt-5-nano",
+                        messages=[
+                            {"role": "system", "content": "You are a helpful assistant."},
+                            {"role": "user", "content": prompt}
+                        ],
+                        temperature=0.3
+                    )
+                )
+                return index, response.choices[0].message.content.strip()
+            except Exception as e:
+                logger.error(f"OpenAI Translation failed for chunk {index}: {e}")
+                return index, chunk_text # Fallback
+
+    # Create tasks
+    tasks = [translate_chunk(i, chunk) for i, chunk in enumerate(chunks)]
+    
+    # Run parallel
+    results = await asyncio.gather(*tasks)
+    
+    # Sort results by index
+    results.sort(key=lambda x: x[0])
+    
+    # Join parts
+    translated_parts = [part for _, part in results]
+    return "\n\n".join(translated_parts)

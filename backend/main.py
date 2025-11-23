@@ -32,6 +32,7 @@ app.add_middleware(
 class StartTaskRequest(BaseModel):
     mode: str  # 'extract' or 'transcribe'
     stream_index: int = None
+    translation_model: str = "gemini" # 'gemini' or 'openai'
 
 @app.get("/")
 def read_root():
@@ -83,7 +84,7 @@ async def upload_video(file: UploadFile = File(...), background_tasks: Backgroun
 async def start_task(task_id: str, request: StartTaskRequest, background_tasks: BackgroundTasks):
     # Trigger processing in background
     from pipeline import run_processing_task
-    background_tasks.add_task(run_processing_task, task_id, request.mode, request.stream_index)
+    background_tasks.add_task(run_processing_task, task_id, request.mode, request.stream_index, request.translation_model)
     return {"status": "Processing started"}
 
 if __name__ == "__main__":
